@@ -1,0 +1,27 @@
+name: build
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # FILL: if a fabric_api string fails to resolve, copy the exact one from fabricmc.net/develop
+          - { mc: '1.20.1', api: '0.92.2+1.20.1',  java: 17 }
+          - { mc: '1.20.4', api: '0.97.3+1.20.4',  java: 17 }
+          - { mc: '1.21.1', api: '0.105.0+1.21.1', java: 21 }
+          - { mc: '1.21.4', api: '0.119.4+1.21.4', java: 21 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.12' }
+      - run: gradle build -Pmc=${{ matrix.mc }} -Pfabric_api=${{ matrix.api }} -Pjava_ver=${{ matrix.java }} --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ritmada-pvp-${{ matrix.mc }}
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar

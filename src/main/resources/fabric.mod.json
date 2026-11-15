@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "ritmadapvp",
+  "version": "${version}",
+  "name": "Ritmada PvP",
+  "description": "Profile-driven auto PvP with ClickGUI.",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.ritmada.pvp.PvpMod"] },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": ">=1.20.1 <1.21.5",
+    "java": ">=17",
+    "fabric-api": "*"
+  }
+}

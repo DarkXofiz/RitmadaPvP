@@ -1,0 +1,20 @@
+plugins { id 'fabric-loom' version '1.10-SNAPSHOT' }
+
+version = "1.0.0+${mc}"
+group = 'dev.ritmada.pvp'
+base { archivesName = 'ritmada-pvp' }
+
+dependencies {
+    minecraft "com.mojang:minecraft:${mc}"
+    mappings loom.officialMojangMappings()   // mojmap: no per-version yarn matrix
+    modImplementation "net.fabricmc:fabric-loader:${loader}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand 'version': project.version }
+}
+
+tasks.withType(JavaCompile).configureEach { options.release = (java_ver as Integer); options.encoding = 'UTF-8' }
+java { withSourcesJar() }
