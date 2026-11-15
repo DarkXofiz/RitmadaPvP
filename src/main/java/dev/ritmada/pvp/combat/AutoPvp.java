@@ -10,6 +10,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.entity.player.Player;
@@ -199,7 +200,12 @@ public final class AutoPvp {
 
     // splash healing / strong healing only; description id ends in "...effect.healing" or "...effect.strong_healing" on all supported versions
     private static boolean isHealing(ItemStack st) {
-        return st.is(Items.SPLASH_POTION) && st.getDescriptionId().contains("healing");
+        if (!st.is(Items.SPLASH_POTION)) return false;
+        // ItemStack#getDescriptionId was removed in 1.21.2+, so read the translation key from the hover name instead (works on 1.20.1 - 1.21.4)
+        if (st.getHoverName().getContents() instanceof TranslatableContents tc) {
+            return tc.getKey().contains("healing");
+        }
+        return false;
     }
 
     private static boolean hasMatching(LocalPlayer p, Predicate<ItemStack> f) {
