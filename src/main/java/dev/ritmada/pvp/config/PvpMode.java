@@ -2,7 +2,7 @@
 package dev.ritmada.pvp.config;
 
 public enum PvpMode {
-    BEAST("Beast PvP", "Beast", "Crit Only (0/1)", 0, 1, 1),
+    BEAST("Beast PvP", "Beast", "Jump When Hit (0/1)", 0, 1, 1),
     POT("Netherite Pot PvP", "Pot", "Heal Below HP", 2, 18, 8),
     ELYTRA("Elytra PvP", "Elytra", "Rocket Every (ticks)", 10, 80, 30),
     CRYSTAL("Crystal PvP", "Crystal", "Action Delay (ticks)", 0, 10, 2);

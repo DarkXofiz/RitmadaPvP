@@ -28,7 +28,10 @@ public final class AutoPvp {
     private static final float REACH = 3.0f;
     private static final Random RNG = new Random();
     private static int cd, rocketCd, reaction;
-    private static boolean hadTarget, jumpHeld, strafed;
+    private static boolean hadTarget, jumpHeld, strafed, jumpNext, moved;
+    private static int retreat;
+    private static final int RETREAT_TICKS = 5;
+    private static int hurtPrev;
     private static int strafeT, strafeDir;
 
     private AutoPvp() {}
@@ -45,8 +48,15 @@ public final class AutoPvp {
         if (rocketCd > 0) rocketCd--;
 
         ProfileSettings s = Config.cur();
+        int ht = p.hurtTime;
+        boolean hurtEdge = ht > hurtPrev; // fresh hit taken this tick
+        hurtPrev = ht;
         LivingEntity t = pick(mc, p);
         if (t == null) { releaseKeys(mc); hadTarget = false; return; }
+
+        // Beast: take a hit from a nearby player -> jump exactly once
+        if (hurtEdge && Config.mode == PvpMode.BEAST && Config.param(PvpMode.BEAST) >= 0.5f && p.distanceTo(t) < 6f)
+            jumpNext = true;
 
         if (!hadTarget) { hadTarget = true; reaction = Math.round(s.reactionTicks); }
         if (reaction > 0) { reaction--; return; }
@@ -71,17 +81,19 @@ public final class AutoPvp {
     }
 
     private static void melee(Minecraft mc, LocalPlayer p, LivingEntity t, ProfileSettings s) {
-        if (Config.mode == PvpMode.BEAST) strafe(mc);
+        if (Config.mode == PvpMode.BEAST) { strafe(mc); spacing(mc, p, t); }
         Aim.at(mc, p, t.getBoundingBox().getCenter(), s);
 
         boolean ready = p.getAttackStrengthScale(0.5f) >= s.minCooldown;
-        boolean wantCrit = Config.mode == PvpMode.BEAST
-                ? Config.param(PvpMode.BEAST) >= 0.5f
-                : Config.profile != Profile.NOOB;
+        boolean beast = Config.mode == PvpMode.BEAST;
+        boolean wantCrit = !beast && Config.profile != Profile.NOOB; // Beast hits on the ground, never hops to crit
         boolean falling = p.fallDistance > 0f && !p.onGround() && !p.isInWater() && !p.onClimbable();
 
         // crit = hit while falling; hop when cooldown is ready and target is close
-        boolean hop = wantCrit && ready && p.onGround() && p.distanceTo(t) < REACH + 1.0f;
+        boolean hop = beast
+                ? jumpNext && p.onGround()
+                : wantCrit && ready && p.onGround() && p.distanceTo(t) < REACH + 1.0f;
+        if (beast && hop) jumpNext = false; // one jump per hit taken
         mc.options.keyJump.setDown(hop);
         jumpHeld = hop;
 
@@ -96,6 +108,8 @@ public final class AutoPvp {
         if (RNG.nextFloat() < s.missChance) { reaction = 1 + RNG.nextInt(4); return; }
         mc.gameMode.attack(p, t);
         p.swing(InteractionHand.MAIN_HAND);
+        // Beast: step back right after the hit so the counter-swing lands on air
+        if (beast && Config.profile != Profile.NOOB) retreat = RETREAT_TICKS;
     }
 
     private static boolean heal(Minecraft mc, LocalPlayer p, ProfileSettings s) {
@@ -193,7 +207,27 @@ public final class AutoPvp {
         strafed = true;
     }
 
+    // Beast spacing: close to reach, hold the gap, back off after each hit
+    private static void spacing(Minecraft mc, LocalPlayer p, LivingEntity t) {
+        double d = p.distanceTo(t);
+        boolean fwd = false, back = false;
+        if (Config.profile == Profile.NOOB) {
+            fwd = d > REACH;
+        } else if (retreat > 0) {
+            retreat--; back = true;
+        } else if (d > REACH) {
+            fwd = true;
+        } else if (d < 2.2) {
+            back = true;
+        }
+        mc.options.keyUp.setDown(fwd);
+        mc.options.keyDown.setDown(back);
+        moved = true;
+    }
+
     private static void releaseKeys(Minecraft mc) {
+        if (moved) { mc.options.keyUp.setDown(false); mc.options.keyDown.setDown(false); moved = false; retreat = 0; }
+        jumpNext = false;
         if (jumpHeld) { mc.options.keyJump.setDown(false); jumpHeld = false; }
         if (strafed) { mc.options.keyLeft.setDown(false); mc.options.keyRight.setDown(false); strafed = false; }
     }
