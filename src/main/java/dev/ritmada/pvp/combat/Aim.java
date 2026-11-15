@@ -1,4 +1,4 @@
-// Java 17+, eased rotation toward a point: dead zone + proportional step + slow aim-point wobble (no per-tick shake)
+// Java 17+, eased rotation: hysteresis start/stop, low-passed step, slow lerped aim wobble, pitch dead zone
 package dev.ritmada.pvp.combat;
 
 import dev.ritmada.pvp.config.ProfileSettings;
@@ -11,19 +11,24 @@ import java.util.Random;
 
 final class Aim {
     private static final Random RNG = new Random();
-    private static Vec3 off = Vec3.ZERO;
+    private static Vec3 off = Vec3.ZERO, offTarget = Vec3.ZERO;
     private static int lastWobble;
+    private static boolean tracking;
+    private static float prevYaw, prevPit;
 
     private Aim() {}
 
     /** Steps rotation toward pt, returns remaining angular error in degrees. */
     static float at(Minecraft mc, LocalPlayer p, Vec3 pt, ProfileSettings s) {
-        // wobble: the aim point drifts every ~12 ticks instead of the camera twitching every tick
-        if (s.jitter > 0f && p.tickCount - lastWobble > 12) {
-            double j = s.jitter * 0.08;
-            off = new Vec3((RNG.nextDouble() - .5) * 2 * j, (RNG.nextDouble() - .5) * 2 * j, (RNG.nextDouble() - .5) * 2 * j);
-            lastWobble = p.tickCount;
-        } else if (s.jitter <= 0f) off = Vec3.ZERO;
+        // wobble: new offset every ~25 ticks, camera glides to it instead of twitching
+        if (s.jitter > 0f) {
+            if (p.tickCount - lastWobble > 25) {
+                double j = s.jitter * 0.08;
+                offTarget = new Vec3((RNG.nextDouble() - .5) * 2 * j, (RNG.nextDouble() - .5) * 2 * j, (RNG.nextDouble() - .5) * 2 * j);
+                lastWobble = p.tickCount;
+            }
+        } else offTarget = Vec3.ZERO;
+        off = off.lerp(offTarget, 0.08);
         pt = pt.add(off);
 
         Vec3 e = p.getEyePosition();
@@ -34,16 +39,24 @@ final class Aim {
         float eyaw = Mth.wrapDegrees(ty - p.getYRot());
         float epit = tp - p.getXRot();
         float err = Math.abs(eyaw) + Math.abs(epit);
-        if (err < 1.5f) return err; // dead zone: no micro-corrections, no shake
+
+        // hysteresis: start correcting past 3 deg, stop under 1 deg (a single threshold makes it flutter at the edge)
+        if (tracking) { if (err < 1.0f) tracking = false; } else if (err > 3.0f) tracking = true;
+        if (!tracking) { prevYaw = 0; prevPit = 0; return err; }
 
         float sp = Math.max(s.aimSpeed, 0.5f);
-        float k = Mth.clamp(sp / 60f, 0.08f, 1f); // ease: fraction of remaining error per tick
+        float k = Mth.clamp(sp / 60f, 0.08f, 1f);
         float dyaw = Mth.clamp(eyaw * k, -sp, sp);
-        float dpit = Mth.clamp(epit * k, -sp, sp);
+        float dpit = Math.abs(epit) < 2.5f ? 0f : Mth.clamp(epit * k, -sp, sp); // body is tall, ignore small pitch error
+
+        // low-pass the step so speed ramps up and down instead of stepping tick to tick
+        dyaw = prevYaw + (dyaw - prevYaw) * 0.6f;
+        dpit = prevPit + (dpit - prevPit) * 0.6f;
+        prevYaw = dyaw; prevPit = dpit;
 
         float g = gcd(mc);
-        if (Math.abs(dyaw) >= g) dyaw = Math.round(dyaw / g) * g; else dyaw = 0;
-        if (Math.abs(dpit) >= g) dpit = Math.round(dpit / g) * g; else dpit = 0;
+        dyaw = Math.abs(dyaw) >= g ? Math.round(dyaw / g) * g : 0;
+        dpit = Math.abs(dpit) >= g ? Math.round(dpit / g) * g : 0;
 
         p.setYRot(p.getYRot() + dyaw);
         p.setXRot(Mth.clamp(p.getXRot() + dpit, -90f, 90f));

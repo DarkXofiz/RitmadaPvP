@@ -14,6 +14,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
@@ -21,6 +22,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.Random;
 
 public final class AutoPvp {
@@ -81,12 +83,13 @@ public final class AutoPvp {
     }
 
     private static void melee(Minecraft mc, LocalPlayer p, LivingEntity t, ProfileSettings s) {
-        if (Config.mode == PvpMode.BEAST) { strafe(mc); spacing(mc, p, t); }
-        Aim.at(mc, p, t.getBoundingBox().getCenter(), s);
+        if (Config.mode == PvpMode.BEAST || Config.mode == PvpMode.POT) { strafe(mc); spacing(mc, p, t); }
+        Aim.at(mc, p, t.position().add(0, t.getBbHeight() * 0.7, 0), s); // chest, steadier than box center while the target hops
 
         boolean ready = p.getAttackStrengthScale(0.5f) >= s.minCooldown;
         boolean beast = Config.mode == PvpMode.BEAST;
-        boolean wantCrit = !beast && Config.profile != Profile.NOOB; // Beast hits on the ground, never hops to crit
+        boolean pot = Config.mode == PvpMode.POT;
+        boolean wantCrit = !beast; // Pot hops and hits on the way down, Beast stays grounded // Beast hits on the ground, never hops to crit
         boolean falling = p.fallDistance > 0f && !p.onGround() && !p.isInWater() && !p.onClimbable();
 
         // crit = hit while falling; hop when cooldown is ready and target is close
@@ -109,17 +112,21 @@ public final class AutoPvp {
         mc.gameMode.attack(p, t);
         p.swing(InteractionHand.MAIN_HAND);
         // Beast: step back right after the hit so the counter-swing lands on air
-        if (beast && Config.profile != Profile.NOOB) retreat = RETREAT_TICKS;
+        if ((beast || pot) && Config.profile != Profile.NOOB) retreat = RETREAT_TICKS;
     }
 
     private static boolean heal(Minecraft mc, LocalPlayer p, ProfileSettings s) {
         if (cd > 0 || p.getHealth() > Config.param(PvpMode.POT)) return false;
-        // FILL: filter to healing potions only (1.20.1: PotionUtils.getPotion(stack); 1.20.5+: DataComponents.POTION_CONTENTS)
-        if (!hasHotbar(p, Items.SPLASH_POTION)) return false;
+        if (!hasMatching(p, AutoPvp::isHealing)) return false;
+        // back off while healing instead of standing in melee range
+        mc.options.keyUp.setDown(false);
+        mc.options.keyDown.setDown(true);
+        moved = true;
+        if (jumpHeld) { mc.options.keyJump.setDown(false); jumpHeld = false; }
         Vec3 l = p.getLookAngle();
         Vec3 down = p.getEyePosition().add(l.x * 0.3, -2.5, l.z * 0.3); // look down gradually, no instant 90 degree snap
         if (Aim.at(mc, p, down, s) > 12f) return true;
-        withSlot(p, Items.SPLASH_POTION, () -> mc.gameMode.useItem(p, InteractionHand.MAIN_HAND));
+        withMatching(p, AutoPvp::isHealing, () -> mc.gameMode.useItem(p, InteractionHand.MAIN_HAND));
         cd = 10;
         return true;
     }
@@ -188,6 +195,28 @@ public final class AutoPvp {
         action.run();
         p.getInventory().selected = prev;
         return true;
+    }
+
+    // splash healing / strong healing only; description id ends in "...effect.healing" or "...effect.strong_healing" on all supported versions
+    private static boolean isHealing(ItemStack st) {
+        return st.is(Items.SPLASH_POTION) && st.getDescriptionId().contains("healing");
+    }
+
+    private static boolean hasMatching(LocalPlayer p, Predicate<ItemStack> f) {
+        for (int i = 0; i < 9; i++) if (f.test(p.getInventory().getItem(i))) return true;
+        return false;
+    }
+
+    private static boolean withMatching(LocalPlayer p, Predicate<ItemStack> f, Runnable action) {
+        for (int i = 0; i < 9; i++) {
+            if (!f.test(p.getInventory().getItem(i))) continue;
+            int prev = p.getInventory().selected;
+            p.getInventory().selected = i;
+            action.run();
+            p.getInventory().selected = prev;
+            return true;
+        }
+        return false;
     }
 
     private static boolean hasHotbar(LocalPlayer p, Item item) {
