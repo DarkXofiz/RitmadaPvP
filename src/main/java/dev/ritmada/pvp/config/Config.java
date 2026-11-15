@@ -15,6 +15,7 @@ import java.util.Map;
 
 public final class Config {
     public static boolean enabled;
+    public static boolean allowServers = true;
     public static Profile profile = Profile.PRO;
     public static PvpMode mode = PvpMode.BEAST;
     public static final Map<Profile, ProfileSettings> profiles = new EnumMap<>(Profile.class);
@@ -29,6 +30,7 @@ public final class Config {
 
     private static final class Data {
         String profile, mode;
+        Boolean allowServers;
         Map<String, ProfileSettings> profiles = new HashMap<>();
         Map<String, Float> params = new HashMap<>();
     }
@@ -50,6 +52,7 @@ public final class Config {
         try (Reader r = Files.newBufferedReader(f)) {
             Data d = GSON.fromJson(r, Data.class);
             if (d == null) return;
+            if (d.allowServers != null) allowServers = d.allowServers;
             profile = en(Profile.class, d.profile, Profile.PRO);
             mode = en(PvpMode.class, d.mode, PvpMode.BEAST);
             d.profiles.forEach((k, v) -> { if (v != null) profiles.put(en(Profile.class, k, Profile.PRO), v); });
@@ -59,6 +62,7 @@ public final class Config {
 
     public static void save() {
         Data d = new Data();
+        d.allowServers = allowServers;
         d.profile = profile.name();
         d.mode = mode.name();
         profiles.forEach((k, v) -> d.profiles.put(k.name(), v));

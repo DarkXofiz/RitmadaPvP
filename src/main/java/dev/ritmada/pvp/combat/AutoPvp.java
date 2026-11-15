@@ -39,7 +39,7 @@ public final class AutoPvp {
     public static void tick(Minecraft mc) {
         LocalPlayer p = mc.player;
         if (p == null || mc.level == null || mc.gameMode == null || !Config.enabled || mc.screen != null
-                || !mc.isLocalServer()) { // own world / LAN host only
+                || (!Config.allowServers && !mc.isLocalServer())) {
             releaseKeys(mc);
             hadTarget = false;
             return;

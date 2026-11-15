@@ -76,8 +76,11 @@ public final class PvpScreen extends Screen {
             btns.add(new Btn(x + i++ * (w + 4), py + 50, w, 18, () -> m.shortName,
                     () -> Config.mode == m, () -> { Config.mode = m; rebuild(); Config.save(); }));
         }
-        btns.add(new Btn(x, py + 74, W - 24, 18, () -> "Auto PvP: " + (Config.enabled ? "ON" : "OFF"),
+        int hw = (W - 24 - 4) / 2;
+        btns.add(new Btn(x, py + 74, hw, 18, () -> "Auto PvP: " + (Config.enabled ? "ON" : "OFF"),
                 () -> Config.enabled, () -> { Config.enabled = !Config.enabled; Sounds.toggle(Config.enabled); }));
+        btns.add(new Btn(x + hw + 4, py + 74, hw, 18, () -> "Servers: " + (Config.allowServers ? "ON" : "OFF"),
+                () -> Config.allowServers, () -> { Config.allowServers = !Config.allowServers; Config.save(); }));
         rebuild();
     }
 
