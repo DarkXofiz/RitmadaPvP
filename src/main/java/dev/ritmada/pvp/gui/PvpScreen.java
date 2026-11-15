@@ -90,7 +90,6 @@ public final class PvpScreen extends Screen {
         add(x, y, w, "Miss Chance", 0, 0.6f, 2, () -> s.missChance, v -> s.missChance = v); y += 19;
         add(x, y, w, "Reaction (ticks)", 0, 12, 0, () -> s.reactionTicks, v -> s.reactionTicks = v); y += 19;
         add(x, y, w, "Min Attack Cooldown", 0.3f, 1f, 2, () -> s.minCooldown, v -> s.minCooldown = v); y += 19;
-        add(x, y, w, "Reach (blocks)", 2.5f, 4.5f, 2, () -> s.reach, v -> s.reach = v); y += 19;
         PvpMode m = Config.mode;
         add(x, y, w, m.paramLabel, m.min, m.max, 0, () -> Config.param(m), v -> Config.params.put(m, v));
     }

@@ -24,16 +24,20 @@ import java.util.Optional;
 import java.util.Random;
 
 public final class AutoPvp {
+    // vanilla survival entity reach, fixed on purpose
+    private static final float REACH = 3.0f;
     private static final Random RNG = new Random();
     private static int cd, rocketCd, reaction;
-    private static boolean hadTarget, jumpHeld;
+    private static boolean hadTarget, jumpHeld, strafed;
+    private static int strafeT, strafeDir;
 
     private AutoPvp() {}
 
     public static void tick(Minecraft mc) {
         LocalPlayer p = mc.player;
-        if (p == null || mc.level == null || mc.gameMode == null || !Config.enabled || mc.screen != null) {
-            releaseJump(mc);
+        if (p == null || mc.level == null || mc.gameMode == null || !Config.enabled || mc.screen != null
+                || !mc.isLocalServer()) { // own world / LAN host only
+            releaseKeys(mc);
             hadTarget = false;
             return;
         }
@@ -42,12 +46,12 @@ public final class AutoPvp {
 
         ProfileSettings s = Config.cur();
         LivingEntity t = pick(mc, p);
-        if (t == null) { releaseJump(mc); hadTarget = false; return; }
+        if (t == null) { releaseKeys(mc); hadTarget = false; return; }
 
         if (!hadTarget) { hadTarget = true; reaction = Math.round(s.reactionTicks); }
         if (reaction > 0) { reaction--; return; }
 
-        if (Config.mode == PvpMode.POT && heal(mc, p)) return;
+        if (Config.mode == PvpMode.POT && heal(mc, p, s)) return;
         if (Config.mode == PvpMode.ELYTRA) rocket(mc, p);
         if (Config.mode == PvpMode.CRYSTAL && crystal(mc, p, t, s)) return;
         melee(mc, p, t, s);
@@ -67,6 +71,7 @@ public final class AutoPvp {
     }
 
     private static void melee(Minecraft mc, LocalPlayer p, LivingEntity t, ProfileSettings s) {
+        if (Config.mode == PvpMode.BEAST) strafe(mc);
         Aim.at(mc, p, t.getBoundingBox().getCenter(), s);
 
         boolean ready = p.getAttackStrengthScale(0.5f) >= s.minCooldown;
@@ -76,7 +81,7 @@ public final class AutoPvp {
         boolean falling = p.fallDistance > 0f && !p.onGround() && !p.isInWater() && !p.onClimbable();
 
         // crit = hit while falling; hop when cooldown is ready and target is close
-        boolean hop = wantCrit && ready && p.onGround() && p.distanceTo(t) < s.reach + 1.0f;
+        boolean hop = wantCrit && ready && p.onGround() && p.distanceTo(t) < REACH + 1.0f;
         mc.options.keyJump.setDown(hop);
         jumpHeld = hop;
 
@@ -84,7 +89,7 @@ public final class AutoPvp {
         if (wantCrit && !falling) return;
 
         Vec3 eye = p.getEyePosition();
-        Vec3 end = eye.add(p.getViewVector(1.0f).scale(s.reach));
+        Vec3 end = eye.add(p.getViewVector(1.0f).scale(REACH));
         Optional<Vec3> hit = t.getBoundingBox().inflate(t.getPickRadius()).clip(eye, end);
         if (hit.isEmpty()) return;
 
@@ -93,15 +98,16 @@ public final class AutoPvp {
         p.swing(InteractionHand.MAIN_HAND);
     }
 
-    private static boolean heal(Minecraft mc, LocalPlayer p) {
+    private static boolean heal(Minecraft mc, LocalPlayer p, ProfileSettings s) {
         if (cd > 0 || p.getHealth() > Config.param(PvpMode.POT)) return false;
         // FILL: filter to healing potions only (1.20.1: PotionUtils.getPotion(stack); 1.20.5+: DataComponents.POTION_CONTENTS)
-        boolean used = withSlot(p, Items.SPLASH_POTION, () -> {
-            p.setXRot(90f);
-            mc.gameMode.useItem(p, InteractionHand.MAIN_HAND);
-        });
-        if (used) cd = 10;
-        return used;
+        if (!hasHotbar(p, Items.SPLASH_POTION)) return false;
+        Vec3 l = p.getLookAngle();
+        Vec3 down = p.getEyePosition().add(l.x * 0.3, -2.5, l.z * 0.3); // look down gradually, no instant 90 degree snap
+        if (Aim.at(mc, p, down, s) > 12f) return true;
+        withSlot(p, Items.SPLASH_POTION, () -> mc.gameMode.useItem(p, InteractionHand.MAIN_HAND));
+        cd = 10;
+        return true;
     }
 
     private static void rocket(Minecraft mc, LocalPlayer p) {
@@ -119,7 +125,7 @@ public final class AutoPvp {
         double bd = Double.MAX_VALUE;
         for (EndCrystal c : mc.level.getEntitiesOfClass(EndCrystal.class, t.getBoundingBox().inflate(6))) {
             double d = p.distanceTo(c);
-            if (d <= s.reach + 0.5 && d < bd) { bd = d; bestC = c; }
+            if (d <= REACH && d < bd) { bd = d; bestC = c; }
         }
         if (bestC != null) {
             if (Aim.at(mc, p, bestC.getBoundingBox().getCenter(), s) < 12f) {
@@ -140,7 +146,7 @@ public final class AutoPvp {
                 if (!(st.is(Blocks.OBSIDIAN) || st.is(Blocks.BEDROCK))) continue;
                 if (!mc.level.isEmptyBlock(b.above()) || !mc.level.isEmptyBlock(b.above(2))) continue;
                 if (!mc.level.getEntities(null, new AABB(b.above()).expandTowards(0, 1, 0)).isEmpty()) continue;
-                if (p.getEyePosition().distanceToSqr(Vec3.atCenterOf(b)) > 20) continue;
+                if (p.getEyePosition().distanceToSqr(Vec3.atCenterOf(b)) > 16) continue;
                 base = b;
             }
         }
@@ -170,7 +176,25 @@ public final class AutoPvp {
         return true;
     }
 
-    private static void releaseJump(Minecraft mc) {
+    private static boolean hasHotbar(LocalPlayer p, Item item) {
+        for (int i = 0; i < 9; i++) if (p.getInventory().getItem(i).is(item)) return true;
+        return false;
+    }
+
+    // Beast: strafe left/right in short random bursts (Noob stands still)
+    private static void strafe(Minecraft mc) {
+        if (Config.profile == Profile.NOOB) return;
+        if (--strafeT <= 0) {
+            strafeDir = RNG.nextInt(3) - 1;
+            strafeT = 8 + RNG.nextInt(Config.profile == Profile.PRO ? 16 : 8);
+        }
+        mc.options.keyLeft.setDown(strafeDir < 0);
+        mc.options.keyRight.setDown(strafeDir > 0);
+        strafed = true;
+    }
+
+    private static void releaseKeys(Minecraft mc) {
         if (jumpHeld) { mc.options.keyJump.setDown(false); jumpHeld = false; }
+        if (strafed) { mc.options.keyLeft.setDown(false); mc.options.keyRight.setDown(false); strafed = false; }
     }
 }
